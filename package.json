@@ -1,0 +1,28 @@
+{
+  "name": "db_banca_estebanquito",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Skehx7/DB_banca_estebanquito.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Skehx7/DB_banca_estebanquito/issues"
+  },
+  "homepage": "https://github.com/Skehx7/DB_banca_estebanquito#readme",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "mysql2": "^3.15.3",
+    "nodemon": "^3.1.10"
+  }
+}
