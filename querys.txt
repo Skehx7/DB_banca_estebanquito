@@ -1,0 +1,171 @@
+USE banca_estebanquito;
+
+CREATE TABLE usuarios (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(100),
+  email VARCHAR(100) UNIQUE,
+  contraseña VARCHAR(100),
+  numero_cuenta VARCHAR(20) UNIQUE,
+  tipo_cuenta ENUM('ahorros','corriente'),
+  saldo DECIMAL(10,2) DEFAULT 0
+);
+
+CREATE TABLE transacciones (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  cuenta_id INT,
+  tipo ENUM('transferencia','deposito','retiro'),
+  monto DECIMAL(10,2),
+  fecha DATETIME DEFAULT NOW(),
+  FOREIGN KEY (cuenta_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE prestamos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  usuario_id INT,
+  monto DECIMAL(10,2),
+  plazo INT, 
+  estado ENUM('pendiente','aprobado','rechazado') DEFAULT 'pendiente',
+  fecha_solicitud DATETIME DEFAULT NOW(),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE TABLE reportes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  usuario_id INT,
+  historico_ingresos DECIMAL(10,2) DEFAULT 0,
+  historico_egresos DECIMAL(10,2) DEFAULT 0,
+  deudas DECIMAL(10,2) DEFAULT 0,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+
+
+
+DELIMITER //
+CREATE PROCEDURE hacer_deposito(
+  IN p_usuario_id INT,
+  IN p_monto DECIMAL(10,2)
+)
+BEGIN
+  UPDATE usuarios SET saldo = saldo + p_monto WHERE id = p_usuario_id;
+  INSERT INTO transacciones (cuenta_id, tipo, monto) VALUES (p_usuario_id, 'deposito', p_monto);
+END //
+DELIMITER ;
+
+
+DELIMITER //
+CREATE PROCEDURE hacer_retiro(
+  IN p_usuario_id INT,
+  IN p_monto DECIMAL(10,2)
+)
+BEGIN
+  DECLARE saldo_actual DECIMAL(10,2);
+
+  SELECT saldo INTO saldo_actual 
+  FROM usuarios 
+  WHERE id = p_usuario_id;
+
+  IF saldo_actual >= p_monto THEN
+    UPDATE usuarios 
+    SET saldo = saldo - p_monto 
+    WHERE id = p_usuario_id;
+
+    INSERT INTO transacciones (cuenta_id, tipo, monto) 
+    VALUES (p_usuario_id, 'retiro', p_monto);
+  ELSE
+    SIGNAL SQLSTATE '45000' 
+    SET MESSAGE_TEXT = 'Saldo insuficiente para realizar el retiro';
+  END IF;
+END //
+DELIMITER ;
+
+
+
+DELIMITER //
+CREATE PROCEDURE hacer_transferencia(
+  IN p_origen INT,
+  IN p_destino INT,
+  IN p_monto DECIMAL(10,2)
+)
+BEGIN
+  DECLARE saldo_origen DECIMAL(10,2);
+
+  SELECT saldo INTO saldo_origen 
+  FROM usuarios 
+  WHERE id = p_origen;
+
+  IF saldo_origen >= p_monto THEN
+    -- Restar al que envía
+    UPDATE usuarios SET saldo = saldo - p_monto WHERE id = p_origen;
+    -- Sumar al que recibe
+    UPDATE usuarios SET saldo = saldo + p_monto WHERE id = p_destino;
+
+    -- Registrar movimientos
+    INSERT INTO transacciones (cuenta_id, tipo, monto) 
+    VALUES (p_origen, 'transferencia', p_monto);
+
+    INSERT INTO transacciones (cuenta_id, tipo, monto) 
+    VALUES (p_destino, 'deposito', p_monto);
+  ELSE
+    SIGNAL SQLSTATE '45000' 
+    SET MESSAGE_TEXT = 'Saldo insuficiente para la transferencia';
+  END IF;
+END //
+DELIMITER ;
+
+
+
+
+DELIMITER //
+CREATE PROCEDURE solicitar_prestamo(
+  IN p_usuario_id INT,
+  IN p_monto DECIMAL(10,2),
+  IN p_plazo INT
+)
+BEGIN
+  INSERT INTO prestamos (usuario_id, monto, plazo, estado)
+  VALUES (p_usuario_id, p_monto, p_plazo, 'pendiente');
+END //
+DELIMITER ;
+
+
+DELIMITER //
+CREATE PROCEDURE aprobar_prestamo(
+  IN p_prestamo_id INT
+)
+BEGIN
+  DECLARE v_usuario INT;
+  DECLARE v_monto DECIMAL(10,2);
+
+  SELECT usuario_id, monto INTO v_usuario, v_monto
+  FROM prestamos WHERE id = p_prestamo_id;
+
+  UPDATE prestamos SET estado = 'aprobado' WHERE id = p_prestamo_id;
+
+  UPDATE usuarios SET saldo = saldo + v_monto WHERE id = v_usuario;
+
+  INSERT INTO transacciones (cuenta_id, tipo, monto) 
+  VALUES (v_usuario, 'deposito', v_monto);
+END //
+DELIMITER ;
+
+
+
+DELIMITER //
+CREATE PROCEDURE reporte_financiero(IN p_usuario_id INT)
+BEGIN
+  SELECT 
+    (SELECT IFNULL(SUM(monto),0)
+     FROM transacciones
+     WHERE cuenta_id = p_usuario_id AND tipo = 'deposito') AS ingresos,
+     
+    (SELECT IFNULL(SUM(monto),0)
+     FROM transacciones
+     WHERE cuenta_id = p_usuario_id AND tipo IN ('retiro','transferencia')) AS egresos,
+     
+    (SELECT IFNULL(SUM(monto),0)
+     FROM prestamos
+     WHERE usuario_id = p_usuario_id AND estado = 'aprobado') AS deudas;
+END //
+DELIMITER ;
+
