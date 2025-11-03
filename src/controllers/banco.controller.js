@@ -2,8 +2,8 @@ import {getConnection} from '../database/database.js';
 
 const createUser = async (req, res) => {
   try {
-    const {nombre,email,contraseña,numero_cuenta,tipo,saldo } = req.body;
-    const data = { nombre,email,contraseña,numero_cuenta,tipo,saldo };
+    const {nombre,email,contraseña,numero_cuenta,tipo_cuenta,saldo } = req.body;
+    const data = { nombre,email,contraseña,numero_cuenta,tipo_cuenta,saldo };
     const connection = await getConnection();
     const result = await connection.query("INSERT INTO usuarios SET ?", [data]);
     res.json({ message: "Usuario, creado" });
@@ -16,7 +16,7 @@ const createUser = async (req, res) => {
 const getUsuarios = async (req, res) => {
   try {
     const connection = await getConnection();
-    const result = await connection.query( "SELECT nombre,email,contraseña,numero_cuenta,tipo,saldo FROM usuarios");
+    const result = await connection.query( "SELECT nombre,email,contraseña,numero_cuenta,tipo_cuenta,saldo FROM usuarios");
     res.json(result[0]);
   } catch (err) {
     console.log(err);
