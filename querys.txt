@@ -1,86 +1,100 @@
+-- CREA Y USA LA BD
+DROP DATABASE IF EXISTS banca_estebanquito;
+CREATE DATABASE banca_estebanquito;
 USE banca_estebanquito;
 
+-- ============= TABLAS =============
+
+-- Usuarios
 CREATE TABLE usuarios (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  nombre VARCHAR(100),
-  email VARCHAR(100) UNIQUE,
-  contraseña VARCHAR(100),
-  numero_cuenta VARCHAR(20) UNIQUE,
-  tipo_cuenta ENUM('ahorros','corriente'),
-  saldo DECIMAL(10,2) DEFAULT 0
+  nombre VARCHAR(100) NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  contraseña VARCHAR(255) NOT NULL,   -- largo por si usas hash
+  numero_cuenta VARCHAR(20) UNIQUE NOT NULL,
+  tipo_cuenta ENUM('ahorros','corriente') NOT NULL,
+  saldo DECIMAL(10,2) NOT NULL DEFAULT 0.00,
 );
 
+-- Transacciones
+-- Nota: se agrega cuenta_destino_id para que las transferencias sean claras.
 CREATE TABLE transacciones (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  cuenta_id INT,
-  tipo ENUM('transferencia','deposito','retiro'),
-  monto DECIMAL(10,2),
-  fecha DATETIME DEFAULT NOW(),
-  FOREIGN KEY (cuenta_id) REFERENCES usuarios(id)
+  cuenta_origen_id INT NOT NULL,
+  cuenta_destino_id INT NULL,  -- NULL en deposito/retiro
+  tipo ENUM('transferencia_enviada','transferencia_recibida','deposito','retiro') NOT NULL,
+  monto DECIMAL(10,2) NOT NULL,
+  fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (cuenta_origen_id) REFERENCES usuarios(id),
+  FOREIGN KEY (cuenta_destino_id) REFERENCES usuarios(id)
 );
 
+-- Prestamos
 CREATE TABLE prestamos (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  usuario_id INT,
-  monto DECIMAL(10,2),
-  plazo INT, 
-  estado ENUM('pendiente','aprobado','rechazado') DEFAULT 'pendiente',
-  fecha_solicitud DATETIME DEFAULT NOW(),
+  usuario_id INT NOT NULL,
+  monto_solicitado DECIMAL(10,2) NOT NULL,
+  monto_pendiente DECIMAL(10,2) NOT NULL,  -- lo que falta por pagar
+  plazo INT NOT NULL,                       -- en meses
+  estado ENUM('pendiente','aprobado','rechazado','pagado') DEFAULT 'pendiente',
+  fecha_solicitud DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  fecha_aprobacion DATETIME NULL,
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
-CREATE TABLE reportes (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  usuario_id INT,
-  historico_ingresos DECIMAL(10,2) DEFAULT 0,
-  historico_egresos DECIMAL(10,2) DEFAULT 0,
-  deudas DECIMAL(10,2) DEFAULT 0,
-  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
-);
+-- ============= PROCEDIMIENTOS =============
 
-
-
-
+-- Depositar
 DELIMITER //
 CREATE PROCEDURE hacer_deposito(
   IN p_usuario_id INT,
   IN p_monto DECIMAL(10,2)
 )
 BEGIN
-  UPDATE usuarios SET saldo = saldo + p_monto WHERE id = p_usuario_id;
-  INSERT INTO transacciones (cuenta_id, tipo, monto) VALUES (p_usuario_id, 'deposito', p_monto);
+  IF p_monto <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Monto inválido';
+  END IF;
+
+  START TRANSACTION;
+    UPDATE usuarios SET saldo = saldo + p_monto WHERE id = p_usuario_id;
+    INSERT INTO transacciones (cuenta_origen_id, tipo, monto)
+    VALUES (p_usuario_id, 'deposito', p_monto);
+  COMMIT;
 END //
 DELIMITER ;
 
-
+-- Retirar
 DELIMITER //
 CREATE PROCEDURE hacer_retiro(
   IN p_usuario_id INT,
   IN p_monto DECIMAL(10,2)
 )
 BEGIN
-  DECLARE saldo_actual DECIMAL(10,2);
+  DECLARE v_saldo DECIMAL(10,2);
 
-  SELECT saldo INTO saldo_actual 
-  FROM usuarios 
-  WHERE id = p_usuario_id;
-
-  IF saldo_actual >= p_monto THEN
-    UPDATE usuarios 
-    SET saldo = saldo - p_monto 
-    WHERE id = p_usuario_id;
-
-    INSERT INTO transacciones (cuenta_id, tipo, monto) 
-    VALUES (p_usuario_id, 'retiro', p_monto);
-  ELSE
-    SIGNAL SQLSTATE '45000' 
-    SET MESSAGE_TEXT = 'Saldo insuficiente para realizar el retiro';
+  IF p_monto <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Monto inválido';
   END IF;
+
+  SELECT saldo INTO v_saldo FROM usuarios WHERE id = p_usuario_id;
+
+  IF v_saldo IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Usuario no existe';
+  END IF;
+
+  IF v_saldo < p_monto THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Saldo insuficiente';
+  END IF;
+
+  START TRANSACTION;
+    UPDATE usuarios SET saldo = saldo - p_monto WHERE id = p_usuario_id;
+    INSERT INTO transacciones (cuenta_origen_id, tipo, monto)
+    VALUES (p_usuario_id, 'retiro', p_monto);
+  COMMIT;
 END //
 DELIMITER ;
 
-
-
+-- Transferir (registra envío y recepción)
 DELIMITER //
 CREATE PROCEDURE hacer_transferencia(
   IN p_origen INT,
@@ -88,34 +102,43 @@ CREATE PROCEDURE hacer_transferencia(
   IN p_monto DECIMAL(10,2)
 )
 BEGIN
-  DECLARE saldo_origen DECIMAL(10,2);
+  DECLARE v_saldo DECIMAL(10,2);
 
-  SELECT saldo INTO saldo_origen 
-  FROM usuarios 
-  WHERE id = p_origen;
+  IF p_monto <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Monto inválido';
+  END IF;
 
-  IF saldo_origen >= p_monto THEN
-    -- Restar al que envía
+  IF p_origen = p_destino THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se puede transferir a la misma cuenta';
+  END IF;
+
+  SELECT saldo INTO v_saldo FROM usuarios WHERE id = p_origen;
+  IF v_saldo IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cuenta origen no existe';
+  END IF;
+
+  IF (SELECT id FROM usuarios WHERE id = p_destino) IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cuenta destino no existe';
+  END IF;
+
+  IF v_saldo < p_monto THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Saldo insuficiente';
+  END IF;
+
+  START TRANSACTION;
     UPDATE usuarios SET saldo = saldo - p_monto WHERE id = p_origen;
-    -- Sumar al que recibe
     UPDATE usuarios SET saldo = saldo + p_monto WHERE id = p_destino;
 
-    -- Registrar movimientos
-    INSERT INTO transacciones (cuenta_id, tipo, monto) 
-    VALUES (p_origen, 'transferencia', p_monto);
+    INSERT INTO transacciones (cuenta_origen_id, cuenta_destino_id, tipo, monto)
+    VALUES (p_origen, p_destino, 'transferencia_enviada', p_monto);
 
-    INSERT INTO transacciones (cuenta_id, tipo, monto) 
-    VALUES (p_destino, 'deposito', p_monto);
-  ELSE
-    SIGNAL SQLSTATE '45000' 
-    SET MESSAGE_TEXT = 'Saldo insuficiente para la transferencia';
-  END IF;
+    INSERT INTO transacciones (cuenta_origen_id, cuenta_destino_id, tipo, monto)
+    VALUES (p_destino, p_origen, 'transferencia_recibida', p_monto);
+  COMMIT;
 END //
 DELIMITER ;
 
-
-
-
+-- Solicitar préstamo (deja pendiente hasta aprobar)
 DELIMITER //
 CREATE PROCEDURE solicitar_prestamo(
   IN p_usuario_id INT,
@@ -123,12 +146,16 @@ CREATE PROCEDURE solicitar_prestamo(
   IN p_plazo INT
 )
 BEGIN
-  INSERT INTO prestamos (usuario_id, monto, plazo, estado)
-  VALUES (p_usuario_id, p_monto, p_plazo, 'pendiente');
+  IF p_monto <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Monto inválido';
+  END IF;
+
+  INSERT INTO prestamos (usuario_id, monto_solicitado, monto_pendiente, plazo, estado)
+  VALUES (p_usuario_id, p_monto, p_monto, p_plazo, 'pendiente');
 END //
 DELIMITER ;
 
-
+-- Aprobar préstamo (acredita al saldo)
 DELIMITER //
 CREATE PROCEDURE aprobar_prestamo(
   IN p_prestamo_id INT
@@ -136,34 +163,54 @@ CREATE PROCEDURE aprobar_prestamo(
 BEGIN
   DECLARE v_usuario INT;
   DECLARE v_monto DECIMAL(10,2);
+  DECLARE v_estado VARCHAR(20);
 
-  SELECT usuario_id, monto INTO v_usuario, v_monto
+  SELECT usuario_id, monto_solicitado, estado
+  INTO v_usuario, v_monto, v_estado
   FROM prestamos WHERE id = p_prestamo_id;
 
-  UPDATE prestamos SET estado = 'aprobado' WHERE id = p_prestamo_id;
+  IF v_usuario IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Préstamo no existe';
+  END IF;
 
-  UPDATE usuarios SET saldo = saldo + v_monto WHERE id = v_usuario;
+  IF v_estado <> 'pendiente' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Préstamo ya procesado';
+  END IF;
 
-  INSERT INTO transacciones (cuenta_id, tipo, monto) 
-  VALUES (v_usuario, 'deposito', v_monto);
+  START TRANSACTION;
+    UPDATE prestamos 
+      SET estado = 'aprobado', fecha_aprobacion = CURRENT_TIMESTAMP
+      WHERE id = p_prestamo_id;
+
+    UPDATE usuarios SET saldo = saldo + v_monto WHERE id = v_usuario;
+
+    INSERT INTO transacciones (cuenta_origen_id, tipo, monto)
+    VALUES (v_usuario, 'deposito', v_monto);
+  COMMIT;
 END //
 DELIMITER ;
 
-
-
+-- Reporte financiero simple (ingresos, egresos, deudas)
 DELIMITER //
-CREATE PROCEDURE reporte_financiero(IN p_usuario_id INT)
+CREATE PROCEDURE reporte_financiero(
+  IN p_usuario_id INT
+)
 BEGIN
   SELECT 
+    -- Ingresos: depósitos + transferencias recibidas
     (SELECT IFNULL(SUM(monto),0)
      FROM transacciones
-     WHERE cuenta_id = p_usuario_id AND tipo = 'deposito') AS ingresos,
-     
+     WHERE cuenta_origen_id = p_usuario_id
+       AND tipo IN ('deposito','transferencia_recibida')) AS ingresos,
+
+    -- Egresos: retiros + transferencias enviadas
     (SELECT IFNULL(SUM(monto),0)
      FROM transacciones
-     WHERE cuenta_id = p_usuario_id AND tipo IN ('retiro','transferencia')) AS egresos,
-     
-    (SELECT IFNULL(SUM(monto),0)
+     WHERE cuenta_origen_id = p_usuario_id
+       AND tipo IN ('retiro','transferencia_enviada')) AS egresos,
+
+    -- Deuda pendiente (solo préstamos aprobados)
+    (SELECT IFNULL(SUM(monto_pendiente),0)
      FROM prestamos
      WHERE usuario_id = p_usuario_id AND estado = 'aprobado') AS deudas;
 END //
