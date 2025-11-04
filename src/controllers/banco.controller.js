@@ -26,8 +26,8 @@ const getUsuarios = async (req, res) => {
 
 const createTransaccion = async (req, res) => {
   try {
-    const {cuenta_id,tipo,monto,fecha } = req.body;
-    const data = { cuenta_id,tipo,monto,fecha };
+    const {cuenta_origen_id, cuenta_destino_id, tipo_cuenta, tipo, monto, fecha } = req.body;
+    const data = { cuenta_origen_id, cuenta_destino_id, tipo_cuenta, tipo, monto, fecha };
     const connection = await getConnection();
     const result = await connection.query("INSERT INTO transacciones SET ?", [data]);
     res.json({ message: "Transaccion Exitosa (～￣▽￣)～" });
@@ -39,13 +39,12 @@ const createTransaccion = async (req, res) => {
 const getTransaccion = async (req, res) => {
   try {
     const connection = await getConnection();
-    const result = await connection.query( "SELECT cuenta_id,tipo,monto,fecha FROM transacciones");
+    const result = await connection.query( "SELECT cuenta_origen_id, cuenta_destino_id, tipo_cuenta, tipo, monto, fecha FROM transacciones");
     res.json(result[0]);
   } catch (err) {
     console.log(err);
   }
 };
-
 
 const createPrestamos  = async (req, res) => {
   try {
@@ -92,10 +91,60 @@ const getReportes = async (req, res) => {
   }
 };
 
+const depositar = async (req, res) => {
+  try {
+    const { usuario_id, monto } = req.body;
+    if (!usuario_id || !monto) return res.status(400).json({ error: 'usuario_id y monto son requeridos' });
+    const conn = await getConnection();
+    await conn.query('CALL hacer_deposito(?, ?)', [usuario_id, monto]);
+    res.status(201).json({ message: 'Depósito exitoso' });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Operación inválida' });
+  }
+};
 
+const retirar = async (req, res) => {
+  try {
+    const { usuario_id, monto } = req.body;
+    if (!usuario_id || !monto) return res.status(400).json({ error: 'usuario_id y monto son requeridos' });
+    const conn = await getConnection();
+    await conn.query('CALL hacer_retiro(?, ?)', [usuario_id, monto]);
+    res.status(201).json({ message: 'Retiro exitoso' });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Operación inválida' });
+  }
+};
 
+const transferir = async (req, res) => {
+  try {
+    const { origen_id, destino_id, monto } = req.body;
+    if (!origen_id || !destino_id || !monto) {
+      return res.status(400).json({ error: 'origen_id, destino_id y monto son requeridos' });
+    }
+    const conn = await getConnection();
+    await conn.query('CALL hacer_transferencia(?, ?, ?)', [origen_id, destino_id, monto]);
+    res.status(201).json({ message: 'Transferencia exitosa' });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Operación inválida' });
+  }
+};
 
-
+const reporteFinanciero = async (req, res) => {
+  try {
+    const usuarioId = Number(req.params.usuarioId);
+    if (!usuarioId) return res.status(400).json({ error: 'usuarioId inválido' });
+    const conn = await getConnection();
+    const [[rows]] = await conn.query('CALL reporte_financiero(?)', [usuarioId]);
+    // MySQL retorna resultados de CALL como matrices; tomamos la primera fila
+    res.json(rows?.[0] || { ingresos: 0, egresos: 0, deudas: 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'No se pudo generar el reporte' });
+  }
+};
 
 
 
@@ -107,5 +156,9 @@ export const methodsUsers ={
     createPrestamos,
     getPrestamos,
     createReportes,
-    getReportes
+    getReportes,
+    depositar,
+    retirar,
+    transferir,
+    reporteFinanciero
 }
