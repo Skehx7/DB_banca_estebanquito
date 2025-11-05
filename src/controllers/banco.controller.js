@@ -2,8 +2,8 @@ import {getConnection} from '../database/database.js';
 
 const createUser = async (req, res) => {
   try {
-    const {nombre,email,contraseña,numero_cuenta,tipo_cuenta,saldo } = req.body;
-    const data = { nombre,email,contraseña,numero_cuenta,tipo_cuenta,saldo };
+    const {id,nombre,email,contraseña,tipo_cuenta,saldo } = req.body;
+    const data = { id,nombre,email,contraseña,tipo_cuenta,saldo };
     const connection = await getConnection();
     const result = await connection.query("INSERT INTO usuarios SET ?", [data]);
     res.json({ message: "Usuario, creado" });
@@ -16,21 +16,8 @@ const createUser = async (req, res) => {
 const getUsuarios = async (req, res) => {
   try {
     const connection = await getConnection();
-    const result = await connection.query( "SELECT nombre,email,contraseña,numero_cuenta,tipo_cuenta,saldo FROM usuarios");
+    const result = await connection.query( "SELECT id, nombre,email,contraseña,tipo_cuenta,saldo FROM usuarios");
     res.json(result[0]);
-  } catch (err) {
-    console.log(err);
-  }
-};
-
-
-const createTransaccion = async (req, res) => {
-  try {
-    const {cuenta_origen_id, cuenta_destino_id, tipo_cuenta, tipo, monto, fecha } = req.body;
-    const data = { cuenta_origen_id, cuenta_destino_id, tipo_cuenta, tipo, monto, fecha };
-    const connection = await getConnection();
-    const result = await connection.query("INSERT INTO transacciones SET ?", [data]);
-    res.json({ message: "Transaccion Exitosa (～￣▽￣)～" });
   } catch (err) {
     console.log(err);
   }
@@ -93,10 +80,10 @@ const getReportes = async (req, res) => {
 
 const depositar = async (req, res) => {
   try {
-    const { usuario_id, monto } = req.body;
-    if (!usuario_id || !monto) return res.status(400).json({ error: 'usuario_id y monto son requeridos' });
+    const { id, monto } = req.body;
+    if (!id || !monto) return res.status(400).json({ error: 'id y monto son requeridos' });
     const conn = await getConnection();
-    await conn.query('CALL hacer_deposito(?, ?)', [usuario_id, monto]);
+    await conn.query('CALL hacer_deposito(?, ?)', [id, monto]);
     res.status(201).json({ message: 'Depósito exitoso' });
   } catch (err) {
     console.error(err);
@@ -119,12 +106,12 @@ const retirar = async (req, res) => {
 
 const transferir = async (req, res) => {
   try {
-    const { origen_id, destino_id, monto } = req.body;
-    if (!origen_id || !destino_id || !monto) {
-      return res.status(400).json({ error: 'origen_id, destino_id y monto son requeridos' });
+    const { cuenta_origen_id, cuenta_destino_id, monto } = req.body;
+    if (!cuenta_origen_id || !cuenta_destino_id || !monto) {
+      return res.status(400).json({ error: 'cuenta_origen_id, cuenta_destino_id y monto son requeridos' });
     }
     const conn = await getConnection();
-    await conn.query('CALL hacer_transferencia(?, ?, ?)', [origen_id, destino_id, monto]);
+    await conn.query('CALL hacer_transferencia(?, ?, ?)', [cuenta_origen_id, cuenta_destino_id, monto]);
     res.status(201).json({ message: 'Transferencia exitosa' });
   } catch (err) {
     console.error(err);
@@ -151,7 +138,7 @@ const reporteFinanciero = async (req, res) => {
 export const methodsUsers ={
     createUser,
     getUsuarios,
-    createTransaccion,
+    // createTransaccion,
     getTransaccion,
     createPrestamos,
     getPrestamos,

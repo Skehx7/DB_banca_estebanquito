@@ -5,11 +5,10 @@ const router = Router();
 
 router.post("/usuarios", methodsUsers.createUser);
 router.get('/usuarios', methodsUsers.getUsuarios);
-router.post("/transacciones", methodsUsers.createTransaccion);
 router.get('/transacciones', methodsUsers.getTransaccion);
-router.post('/transacciones', methodsUsers.depositar);
-router.post('/transacciones', methodsUsers.retirar);
-router.post('/transacciones', methodsUsers.transferir);
+router.post('/transacciones/depositar', methodsUsers.depositar);
+router.post('/transacciones/retirar', methodsUsers.retirar);
+router.post('/transacciones/transferir', methodsUsers.transferir);
 router.post("/prestamos", methodsUsers.createPrestamos);
 router.get('/prestamos', methodsUsers.getPrestamos);
 router.get('/reportes', methodsUsers.reporteFinanciero);

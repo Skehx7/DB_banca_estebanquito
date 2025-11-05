@@ -7,11 +7,10 @@ USE banca_estebanquito;
 
 -- Usuarios
 CREATE TABLE usuarios (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id VARCHAR(20) NOT NULL PRIMARY KEY,
   nombre VARCHAR(100) NOT NULL,
   email VARCHAR(100) UNIQUE NOT NULL,
   contraseña VARCHAR(255) NOT NULL,   -- largo por si usas hash
-  numero_cuenta VARCHAR(20) UNIQUE NOT NULL,
   tipo_cuenta ENUM('ahorros','corriente') NOT NULL,
   saldo DECIMAL(10,2) NOT NULL DEFAULT 0.00
 );
@@ -20,8 +19,8 @@ CREATE TABLE usuarios (
 -- Nota: se agrega cuenta_destino_id para que las transferencias sean claras.
 CREATE TABLE transacciones (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  cuenta_origen_id INT NOT NULL,
-  cuenta_destino_id INT NULL,  -- NULL en deposito/retiro
+  cuenta_origen_id VARCHAR(20) NOT NULL,
+  cuenta_destino_id VARCHAR(20) NULL,  -- NULL en deposito/retiro
   tipo_cuenta ENUM('ahorros','corriente') NOT NULL,
   tipo ENUM('transferencia_enviada','transferencia_recibida','deposito','retiro') NOT NULL,
   monto DECIMAL(10,2) NOT NULL,
@@ -33,7 +32,7 @@ CREATE TABLE transacciones (
 -- Prestamos
 CREATE TABLE prestamos (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  usuario_id INT NOT NULL,
+  usuario_id VARCHAR(20) NOT NULL,
   monto_solicitado DECIMAL(10,2) NOT NULL,
   monto_pendiente DECIMAL(10,2) NOT NULL,  -- lo que falta por pagar
   plazo INT NOT NULL,                       -- en meses
@@ -48,7 +47,7 @@ CREATE TABLE prestamos (
 -- Depositar
 DELIMITER //
 CREATE PROCEDURE hacer_deposito(
-  IN p_usuario_id INT,
+  IN p_usuario_id varchar(20),
   IN p_monto DECIMAL(10,2)
 )
 BEGIN
@@ -67,7 +66,7 @@ DELIMITER ;
 -- Retirar
 DELIMITER //
 CREATE PROCEDURE hacer_retiro(
-  IN p_usuario_id INT,
+  IN p_usuario_id VARCHAR(20),
   IN p_monto DECIMAL(10,2)
 )
 BEGIN
@@ -98,8 +97,8 @@ DELIMITER ;
 -- Transferir (registra envío y recepción)
 DELIMITER //
 CREATE PROCEDURE hacer_transferencia(
-  IN p_origen INT,
-  IN p_destino INT,
+  IN p_origen VARCHAR(20),
+  IN p_destino VARCHAR(20),
   IN p_monto DECIMAL(10,2)
 )
 BEGIN
@@ -142,7 +141,7 @@ DELIMITER ;
 -- Solicitar préstamo (deja pendiente hasta aprobar)
 DELIMITER //
 CREATE PROCEDURE solicitar_prestamo(
-  IN p_usuario_id INT,
+  IN p_usuario_id VARCHAR(20),
   IN p_monto DECIMAL(10,2),
   IN p_plazo INT
 )
@@ -162,7 +161,7 @@ CREATE PROCEDURE aprobar_prestamo(
   IN p_prestamo_id INT
 )
 BEGIN
-  DECLARE v_usuario INT;
+  DECLARE v_usuario VARCHAR(20);
   DECLARE v_monto DECIMAL(10,2);
   DECLARE v_estado VARCHAR(20);
 
@@ -194,7 +193,7 @@ DELIMITER ;
 -- Reporte financiero simple (ingresos, egresos, deudas)
 DELIMITER //
 CREATE PROCEDURE reporte_financiero(
-  IN p_usuario_id INT
+  IN p_usuario_id VARCHAR(20)
 )
 BEGIN
   SELECT 
