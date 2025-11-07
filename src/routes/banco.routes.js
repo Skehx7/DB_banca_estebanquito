@@ -9,8 +9,11 @@ router.get('/transacciones', methodsUsers.getTransaccion);
 router.post('/transacciones/depositar', methodsUsers.depositar);
 router.post('/transacciones/retirar', methodsUsers.retirar);
 router.post('/transacciones/transferir', methodsUsers.transferir);
-router.post("/prestamos", methodsUsers.createPrestamos);
+router.post("/prestamos/solicitud", methodsUsers.solicitarPrestamo);
 router.get('/prestamos', methodsUsers.getPrestamos);
-router.get('/reportes', methodsUsers.reporteFinanciero);
+router.post('/ingresos', methodsUsers.reporteIngresos);
+router.post('/egresos', methodsUsers.reporteEgresos);
+router.post('/deudas', methodsUsers.reporteDeuda);
+router.post('/saldo', methodsUsers.obtenerSaldo);
 
 export default router;

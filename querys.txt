@@ -24,7 +24,7 @@ CREATE TABLE transacciones (
   tipo_cuenta ENUM('ahorros','corriente') NOT NULL,
   tipo ENUM('transferencia_enviada','transferencia_recibida','deposito','retiro') NOT NULL,
   monto DECIMAL(10,2) NOT NULL,
-  fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  fecha DATE NOT NULL DEFAULT (CURRENT_DATE),
   FOREIGN KEY (cuenta_origen_id) REFERENCES usuarios(id),
   FOREIGN KEY (cuenta_destino_id) REFERENCES usuarios(id)
 );
@@ -36,9 +36,9 @@ CREATE TABLE prestamos (
   monto_solicitado DECIMAL(10,2) NOT NULL,
   monto_pendiente DECIMAL(10,2) NOT NULL,  -- lo que falta por pagar
   plazo INT NOT NULL,                       -- en meses
-  estado ENUM('pendiente','aprobado','rechazado','pagado') DEFAULT 'pendiente',
-  fecha_solicitud DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  fecha_aprobacion DATETIME NULL,
+  estado ENUM('pendiente','aprobado','rechazado','pagado') DEFAULT 'aprobado',
+  fecha_solicitud DATE NOT NULL DEFAULT (CURRENT_DATE),
+  fecha_aprobacion DATE NOT NULL DEFAULT (CURRENT_DATE),
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
@@ -151,67 +151,79 @@ BEGIN
   END IF;
 
   INSERT INTO prestamos (usuario_id, monto_solicitado, monto_pendiente, plazo, estado)
-  VALUES (p_usuario_id, p_monto, p_monto, p_plazo, 'pendiente');
-END //
-DELIMITER ;
-
--- Aprobar préstamo (acredita al saldo)
-DELIMITER //
-CREATE PROCEDURE aprobar_prestamo(
-  IN p_prestamo_id INT
-)
-BEGIN
-  DECLARE v_usuario VARCHAR(20);
-  DECLARE v_monto DECIMAL(10,2);
-  DECLARE v_estado VARCHAR(20);
-
-  SELECT usuario_id, monto_solicitado, estado
-  INTO v_usuario, v_monto, v_estado
-  FROM prestamos WHERE id = p_prestamo_id;
-
-  IF v_usuario IS NULL THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Préstamo no existe';
-  END IF;
-
-  IF v_estado <> 'pendiente' THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Préstamo ya procesado';
-  END IF;
-
+  VALUES (p_usuario_id, p_monto, p_monto, p_plazo, 'aprobado');
+  
   START TRANSACTION;
-    UPDATE prestamos 
-      SET estado = 'aprobado', fecha_aprobacion = CURRENT_TIMESTAMP
-      WHERE id = p_prestamo_id;
-
-    UPDATE usuarios SET saldo = saldo + v_monto WHERE id = v_usuario;
-
+    UPDATE usuarios SET saldo = saldo + p_monto WHERE id = p_usuario_id;
+    
     INSERT INTO transacciones (cuenta_origen_id, tipo, monto)
-    VALUES (v_usuario, 'deposito', v_monto);
+    VALUES (p_usuario_id, 'deposito', p_monto);
   COMMIT;
 END //
 DELIMITER ;
 
--- Reporte financiero simple (ingresos, egresos, deudas)
+-- Reportes financieros (ingresos, egresos, deudas)
+-- 1. REPORTE DE INGRESOS DETALLADO
 DELIMITER //
-CREATE PROCEDURE reporte_financiero(
+CREATE PROCEDURE reporte_ingreso(
   IN p_usuario_id VARCHAR(20)
 )
 BEGIN
   SELECT 
-    -- Ingresos: depósitos + transferencias recibidas
-    (SELECT IFNULL(SUM(monto),0)
-     FROM transacciones
-     WHERE cuenta_origen_id = p_usuario_id
-       AND tipo IN ('deposito','transferencia_recibida')) AS ingresos,
+    DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha,
+    tipo,
+    monto,
+    CASE 
+      WHEN tipo = 'deposito' THEN 'Depósito'
+      WHEN tipo = 'transferencia_recibida' THEN CONCAT('Transferencia de: ', cuenta_destino_id)
+      ELSE tipo
+    END AS descripcion
+  FROM transacciones
+  WHERE cuenta_origen_id = p_usuario_id
+    AND tipo IN ('deposito', 'transferencia_recibida')
+  ORDER BY fecha DESC;
+END //
+DELIMITER ;
 
-    -- Egresos: retiros + transferencias enviadas
-    (SELECT IFNULL(SUM(monto),0)
-     FROM transacciones
-     WHERE cuenta_origen_id = p_usuario_id
-       AND tipo IN ('retiro','transferencia_enviada')) AS egresos,
+-- 2. REPORTE DE EGRESOS DETALLADO
+DELIMITER //
+CREATE PROCEDURE reporte_egreso(
+  IN p_usuario_id VARCHAR(20)
+)
+BEGIN
+  SELECT 
+    DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha,
+    tipo,
+    monto,
+    CASE 
+      WHEN tipo = 'retiro' THEN 'Retiro'
+      WHEN tipo = 'transferencia_enviada' THEN CONCAT('Transferencia a: ', cuenta_destino_id)
+      ELSE tipo
+    END AS descripcion
+  FROM transacciones
+  WHERE cuenta_origen_id = p_usuario_id
+    AND tipo IN ('retiro', 'transferencia_enviada')
+  ORDER BY fecha DESC;
+END //
+DELIMITER ;
 
-    -- Deuda pendiente (solo préstamos aprobados)
-    (SELECT IFNULL(SUM(monto_pendiente),0)
-     FROM prestamos
-     WHERE usuario_id = p_usuario_id AND estado = 'aprobado') AS deudas;
+-- 3. REPORTE DE DEUDAS DETALLADO
+DELIMITER //
+CREATE PROCEDURE reporte_deuda(
+  IN p_usuario_id VARCHAR(20)
+)
+BEGIN
+  SELECT 
+    DATE_FORMAT(fecha_solicitud, '%Y-%m-%d') AS fecha,
+    'Préstamo' AS tipo,
+    monto_pendiente AS monto,
+    CONCAT('Préstamo #', id, ' - Plazo: ', plazo, ' meses') AS descripcion,
+    monto_solicitado,
+    estado
+  FROM prestamos
+  WHERE usuario_id = p_usuario_id 
+    AND estado = 'aprobado'
+    AND monto_pendiente > 0
+  ORDER BY fecha_solicitud DESC;
 END //
 DELIMITER ;
