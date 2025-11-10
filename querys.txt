@@ -1,5 +1,4 @@
 -- CREA Y USA LA BD
-DROP DATABASE IF EXISTS banca_estebanquito;
 CREATE DATABASE banca_estebanquito;
 USE banca_estebanquito;
 
